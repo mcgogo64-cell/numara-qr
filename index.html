@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="tr">
+<html lang="de">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Numara → QR</title>
+<title>Nummer → QR</title>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 <style>
@@ -54,54 +54,54 @@
 </style>
 </head>
 <body>
-<h1>Numara → QR <span>(91)61100 + numara</span></h1>
+<h1>Nummer → QR <span>(91)61100 + Nummer</span></h1>
 
 <div class="card">
   <div class="cam">
     <video id="video" playsinline muted autoplay></video>
-    <div class="hint">Numarayı yeşil çerçevenin içine getirin</div>
+    <div class="hint">Nummer in den grünen Rahmen halten</div>
     <div class="roi" id="roi"></div>
-    <div class="camMsg" id="camMsg">Kamera başlatılıyor…</div>
+    <div class="camMsg" id="camMsg">Kamera wird gestartet…</div>
   </div>
   <div class="row">
-    <button class="primary" id="btnRead">📷 Oku</button>
-    <button id="btnAuto">Otomatik: Kapalı</button>
-    <button id="btnTorch" style="display:none">🔦 Fener</button>
+    <button class="primary" id="btnRead">📷 Lesen</button>
+    <button id="btnAuto">Automatisch: Aus</button>
+    <button id="btnTorch" style="display:none">🔦 Licht</button>
   </div>
   <div class="row">
-    <button id="btnBarcode">▥ Barkoddan oku</button>
-    <button id="btnPhoto">🖼️ Fotoğraftan</button>
+    <button id="btnBarcode">▥ Barcode lesen</button>
+    <button id="btnPhoto">🖼️ Aus Foto</button>
   </div>
   <input type="file" id="fileIn" accept="image/*" capture="environment">
   <div class="status" id="status"></div>
   <div id="chips" style="display:none"></div>
-  <div id="dbgWrap" style="display:none"><label style="margin-top:8px">OCR'ın gördüğü görüntü:</label><img id="dbg" alt=""></div>
+  <div id="dbgWrap" style="display:none"><label style="margin-top:8px">Bild, das die Texterkennung sieht:</label><img id="dbg" alt=""></div>
   <div class="lenRow">
-    <label for="len">Numara kaç haneli?</label>
-    <input id="len" type="number" inputmode="numeric" min="0" max="30" placeholder="örn. 9">
+    <label for="len">Wie viele Stellen hat die Nummer?</label>
+    <input id="len" type="number" inputmode="numeric" min="0" max="30" placeholder="z. B. 9">
   </div>
-  <div class="tip">Hane sayısını girerseniz eksik/fazla okumaları kabul etmez, doğru olanı bekler.</div>
+  <div class="tip">Mit Stellenzahl werden zu kurze/zu lange Ergebnisse verworfen – es wird auf das richtige gewartet.</div>
 </div>
 
 <div class="card">
-  <label for="num">Okunan numara (gerekirse düzeltin)</label>
+  <label for="num">Erkannte Nummer (bei Bedarf korrigieren)</label>
   <div class="inputWrap">
     <span class="prefix">(91)61100</span>
-    <input id="num" inputmode="numeric" pattern="[0-9]*" placeholder="numara" autocomplete="off">
+    <input id="num" inputmode="numeric" pattern="[0-9]*" placeholder="Nummer" autocomplete="off">
   </div>
 </div>
 
 <div class="card qrBox">
-  <div id="qr"><div class="empty">Numara okununca<br>QR kod burada çıkar</div></div>
+  <div id="qr"><div class="empty">Sobald die Nummer erkannt ist,<br>erscheint hier der QR-Code</div></div>
   <div class="code" id="codeText"></div>
   <div class="row" style="width:100%">
-    <button id="btnSave" disabled>⬇️ PNG kaydet</button>
-    <button id="btnCopy" disabled>📋 Kopyala</button>
+    <button id="btnSave" disabled>⬇️ Als PNG speichern</button>
+    <button id="btnCopy" disabled>📋 Kopieren</button>
   </div>
 </div>
 
 <div class="card">
-  <label>Son okunanlar</label>
+  <label>Zuletzt erkannt</label>
   <ul class="hist" id="hist"></ul>
 </div>
 
@@ -121,16 +121,16 @@ function camFail(msg) {
   roi.style.display = 'none';
   document.querySelector('.hint').style.display = 'none';
   $('camMsg').innerHTML = msg;
-  $('btnRead').textContent = '📷 Fotoğraf çek ve oku';
+  $('btnRead').textContent = '📷 Foto aufnehmen & lesen';
   $('btnAuto').style.display = 'none';
 }
 async function startCamera() {
   if (!window.isSecureContext) {
-    camFail('Canlı kamera bu adreste kapalı (HTTPS gerekli).<br><br>Aşağıdaki <b>"📷 Fotoğraf çek ve oku"</b> butonu telefonun kamerasını açar ve aynı şekilde çalışır.');
+    camFail('Live-Kamera ist unter dieser Adresse gesperrt (HTTPS erforderlich).<br><br>Der Button <b>„📷 Foto aufnehmen & lesen“</b> öffnet die Handykamera und funktioniert genauso.');
     return;
   }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    camFail('Bu tarayıcı canlı kamerayı desteklemiyor.<br><br><b>"📷 Fotoğraf çek ve oku"</b> butonunu kullanın.');
+    camFail('Dieser Browser unterstützt keine Live-Kamera.<br><br>Bitte den Button <b>„📷 Foto aufnehmen & lesen“</b> verwenden.');
     return;
   }
   try {
@@ -149,7 +149,7 @@ async function startCamera() {
       track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
     }
   } catch (e) {
-    camFail('Kameraya erişilemedi (' + e.name + ').<br><br>Tarayıcı ayarlarından kamera izni verin veya <b>"📷 Fotoğraf çek ve oku"</b> butonunu kullanın.');
+    camFail('Kein Zugriff auf die Kamera (' + e.name + ').<br><br>Kamera-Berechtigung in den Browser-Einstellungen erlauben oder den Button <b>„📷 Foto aufnehmen & lesen“</b> verwenden.');
   }
 }
 
@@ -170,7 +170,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function getWorker() {
   if (worker) return worker;
-  setStatus('OCR motoru yükleniyor (ilk seferde birkaç saniye)…');
+  setStatus('Texterkennung wird geladen (beim ersten Mal einige Sekunden)…');
   worker = await Tesseract.createWorker('eng', 1, {}, { load_system_dawg: '0', load_freq_dawg: '0' });
   await worker.setParameters({ tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '7' });
   return worker;
@@ -268,8 +268,8 @@ function accept(v) {
   update(true);
   showDbg(v.img);
   const L = expectedLen();
-  if (L && v.s.length !== L) setStatus('⚠️ ' + v.s.length + ' hane okundu, ' + L + ' bekleniyordu: ' + v.s + ' — kontrol edin veya tekrar okuyun.');
-  else setStatus('✅ Okundu: ' + v.s);
+  if (L && v.s.length !== L) setStatus('⚠️ ' + v.s.length + ' Stellen erkannt, ' + L + ' erwartet: ' + v.s + ' – bitte prüfen oder erneut lesen.');
+  else setStatus('✅ Erkannt: ' + v.s);
   if (navigator.vibrate) navigator.vibrate(80);
 }
 
@@ -325,7 +325,7 @@ function showChips(list, title) {
   list.forEach(item => {
     const b = document.createElement('button'); b.className = 'chip';
     b.textContent = item.label || item.s;
-    b.onclick = () => { numIn.value = item.s; update(true); setStatus('✅ Seçildi: ' + item.s); };
+    b.onclick = () => { numIn.value = item.s; update(true); setStatus('✅ Ausgewählt: ' + item.s); };
     box.appendChild(b);
   });
   box.style.display = '';
@@ -334,11 +334,11 @@ function showChips(list, title) {
 // Manuel okuma: 2 kare × 3 işleme yöntemi, sonuçları oylar
 async function manualRead() {
   if (busy) return;
-  busy = true; roi.classList.add('busy'); setStatus('Okunuyor… telefonu sabit tutun');
+  busy = true; roi.classList.add('busy'); setStatus('Wird gelesen… Handy ruhig halten');
   try {
     const votes = new Map();
     outer: for (let f = 0; f < 2; f++) {
-      const src = grabRoi(); if (!src) { setStatus('Kamera hazır değil.'); return; }
+      const src = grabRoi(); if (!src) { setStatus('Kamera ist nicht bereit.'); return; }
       for (const cb of COMBOS) {
         const r = await ocrCombo(src, cb);
         r.cands.forEach(c => addVote(votes, c, r.conf, r.img));
@@ -347,11 +347,11 @@ async function manualRead() {
       }
     }
     const list = ranked(votes);
-    showChips(list.slice(1, 4).filter(v => lenOk(v.s) || !expectedLen()), 'Yanlışsa diğer okumalardan seçin:');
+    showChips(list.slice(1, 4).filter(v => lenOk(v.s) || !expectedLen()), 'Falsch? Andere Ergebnisse antippen:');
     const b = list[0];
-    if (b) accept(b); else setStatus('Numara bulunamadı. Rakamlar çerçeveyi yatayda doldursun, fener açıp tekrar deneyin.');
+    if (b) accept(b); else setStatus('Keine Nummer gefunden. Ziffern sollen den Rahmen in der Breite ausfüllen – ggf. Licht einschalten und erneut versuchen.');
   } catch (e) {
-    setStatus('OCR hatası: ' + e.message);
+    setStatus('Fehler bei der Texterkennung: ' + e.message);
   } finally { busy = false; roi.classList.remove('busy'); }
 }
 $('btnRead').onclick = () => { if (!camOk) { $('fileIn').click(); return; } manualRead(); };
@@ -361,8 +361,8 @@ let autoVotes = new Map(), autoStep = 0;
 $('btnAuto').onclick = () => {
   if (autoTimer) { stopAuto(); return; }
   autoVotes = new Map(); autoStep = 0;
-  $('btnAuto').textContent = 'Otomatik: Açık'; $('btnAuto').classList.add('on');
-  setStatus('Otomatik tarama… numarayı çerçeveye tutun.');
+  $('btnAuto').textContent = 'Automatisch: Ein'; $('btnAuto').classList.add('on');
+  setStatus('Automatischer Scan… Nummer in den Rahmen halten.');
   autoTimer = setInterval(async () => {
     if (busy) return;
     const src = grabRoi(); if (!src) return;
@@ -373,25 +373,25 @@ $('btnAuto').onclick = () => {
       const b = pick(autoVotes);
       if (b && b.n >= 3 && lenOk(b.s)) {
         stopAuto(); accept(b);
-        showChips(ranked(autoVotes).slice(1, 4).filter(v => lenOk(v.s)), 'Yanlışsa diğer okumalardan seçin:');
+        showChips(ranked(autoVotes).slice(1, 4).filter(v => lenOk(v.s)), 'Falsch? Andere Ergebnisse antippen:');
       }
-      else if (b) setStatus('Taranıyor… şu an görülen: ' + b.s);
+      else if (b) setStatus('Scanne… aktuell erkannt: ' + b.s);
     } catch (e) {} finally { busy = false; roi.classList.remove('busy'); }
   }, 300);
 };
 function stopAuto() {
   clearInterval(autoTimer); autoTimer = null;
-  $('btnAuto').textContent = 'Otomatik: Kapalı'; $('btnAuto').classList.remove('on');
+  $('btnAuto').textContent = 'Automatisch: Aus'; $('btnAuto').classList.remove('on');
 }
 
 // Barkod / Data Matrix okuma (Chrome Android'in yerleşik okuyucusu)
 let barcodeBusy = false;
 $('btnBarcode').onclick = async () => {
-  if (!('BarcodeDetector' in window)) { setStatus('Bu tarayıcı barkod okumayı desteklemiyor (Android Chrome gerekir).'); return; }
-  if (!camOk) { setStatus('Barkod için canlı kamera gerekli.'); return; }
+  if (!('BarcodeDetector' in window)) { setStatus('Dieser Browser kann keine Barcodes lesen (Chrome auf Android erforderlich).'); return; }
+  if (!camOk) { setStatus('Für Barcodes wird die Live-Kamera benötigt.'); return; }
   if (barcodeBusy) return;
   barcodeBusy = true; stopAuto();
-  setStatus('Barkod aranıyor… etiketteki barkodu kameraya gösterin.');
+  setStatus('Suche Barcode… Barcode auf dem Etikett vor die Kamera halten.');
   try {
     const det = new BarcodeDetector();
     const found = new Map(); const t0 = Date.now(); let tFirst = 0;
@@ -402,17 +402,17 @@ $('btnBarcode').onclick = async () => {
       if (tFirst && Date.now() - tFirst > 1200) break;
       await sleep(150);
     }
-    if (!found.size) { setStatus('Barkod bulunamadı. Barkoda yaklaşın, fener açıp tekrar deneyin.'); return; }
+    if (!found.size) { setStatus('Kein Barcode gefunden. Näher herangehen, ggf. Licht einschalten und erneut versuchen.'); return; }
     const L = expectedLen(), items = [];
     for (const [raw, fmt] of found) {
       const runs = raw.match(/\d+/g) || [];
       let s = L ? (runs.find(r => r.length === L) || raw.replace(/\D/g, '')) : raw.replace(/\D/g, '');
       if (s) items.push({ s, label: s + '  (' + fmt + (raw !== s ? ': ' + raw : '') + ')' });
     }
-    if (!items.length) { setStatus('Barkod okundu ama içinde rakam yok: ' + [...found.keys()].join(', ')); return; }
-    showChips(items, 'Barkodlarda bulunanlar — doğru numaraya dokunun:');
-    if (items.length === 1) { numIn.value = items[0].s; update(true); setStatus('✅ Barkoddan okundu: ' + items[0].s); if (navigator.vibrate) navigator.vibrate(80); }
-    else setStatus(items.length + ' barkod bulundu, aşağıdan doğru olanı seçin.');
+    if (!items.length) { setStatus('Barcode gelesen, enthält aber keine Ziffern: ' + [...found.keys()].join(', ')); return; }
+    showChips(items, 'Gefunden in Barcodes – richtige Nummer antippen:');
+    if (items.length === 1) { numIn.value = items[0].s; update(true); setStatus('✅ Aus Barcode gelesen: ' + items[0].s); if (navigator.vibrate) navigator.vibrate(80); }
+    else setStatus(items.length + ' Barcodes gefunden – unten den richtigen auswählen.');
   } finally { barcodeBusy = false; }
 };
 
@@ -425,7 +425,7 @@ $('fileIn').onchange = e => {
   im.onload = async () => {
     URL.revokeObjectURL(im.src);
     if (busy) return;
-    busy = true; setStatus('Fotoğraf okunuyor…');
+    busy = true; setStatus('Foto wird gelesen…');
     try {
       const c = document.createElement('canvas');
       const k = Math.min(1, 1600 / Math.max(im.width, im.height));
@@ -437,8 +437,8 @@ $('fileIn').onchange = e => {
         data.text.split('\n').forEach(line => addVote(votes, line.replace(/\D/g, ''), data.confidence, img));
       }
       const b = pick(votes);
-      if (b) accept(b); else setStatus('Fotoğrafta numara bulunamadı. Numaraya daha yakından çekin.');
-    } catch (err) { setStatus('OCR hatası: ' + err.message); }
+      if (b) accept(b); else setStatus('Keine Nummer im Foto gefunden. Bitte näher an der Nummer fotografieren.');
+    } catch (err) { setStatus('Fehler bei der Texterkennung: ' + err.message); }
     finally { busy = false; }
   };
   im.src = URL.createObjectURL(f);
@@ -451,7 +451,7 @@ function update(addHist) {
   if (numIn.value !== n) numIn.value = n;
   const box = $('qr');
   if (!n) {
-    box.innerHTML = '<div class="empty">Numara okununca<br>QR kod burada çıkar</div>';
+    box.innerHTML = '<div class="empty">Sobald die Nummer erkannt ist,<br>erscheint hier der QR-Code</div>';
     $('codeText').textContent = ''; currentCode = '';
     $('btnSave').disabled = $('btnCopy').disabled = true;
     return;
@@ -487,8 +487,8 @@ $('btnSave').onclick = () => {
 };
 
 $('btnCopy').onclick = async () => {
-  try { await navigator.clipboard.writeText(currentCode); setStatus('Kopyalandı: ' + currentCode); }
-  catch (e) { setStatus('Kopyalanamadı.'); }
+  try { await navigator.clipboard.writeText(currentCode); setStatus('Kopiert: ' + currentCode); }
+  catch (e) { setStatus('Kopieren fehlgeschlagen.'); }
 };
 
 // ---------- Geçmiş ----------
@@ -499,11 +499,11 @@ function addHistory(code) {
 }
 function renderHist() {
   const ul = $('hist');
-  ul.innerHTML = history.length ? '' : '<li><small>Henüz yok</small></li>';
+  ul.innerHTML = history.length ? '' : '<li><small>Noch keine</small></li>';
   history.forEach(h => {
     const li = document.createElement('li');
     const d = new Date(h.t);
-    li.innerHTML = '<span>' + h.code + '</span><small>' + d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) + '</small>';
+    li.innerHTML = '<span>' + h.code + '</span><small>' + d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + '</small>';
     li.onclick = () => { numIn.value = h.code.slice(PREFIX.length); update(false); window.scrollTo({ top: 0, behavior: 'smooth' }); };
     ul.appendChild(li);
   });
@@ -511,7 +511,7 @@ function renderHist() {
 
 renderHist();
 startCamera();
-getWorker().then(() => setStatus('Hazır. Numarayı çerçeveye tutup "Oku"ya basın.')).catch(() => {});
+getWorker().then(() => setStatus('Bereit. Nummer in den Rahmen halten und „Lesen“ drücken.')).catch(() => {});
 </script>
 </body>
 </html>

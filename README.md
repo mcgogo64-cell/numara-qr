@@ -1,5 +1,5 @@
 # numara-qr
 
-Arka kamerayla numarayı okuyup `(91)61100` + numara içeriğiyle QR kod üreten tek sayfalık web uygulaması.
+Einseitige Web-App: liest mit der Rückkamera eine Nummer vom Etikett und erzeugt einen QR-Code mit dem Inhalt `(91)61100` + Nummer.
 
-Canlı sürüm: https://mcgogo64-cell.github.io/numara-qr/
+Live: https://mcgogo64-cell.github.io/numara-qr/
