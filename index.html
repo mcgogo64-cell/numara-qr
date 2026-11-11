@@ -111,7 +111,11 @@ const $ = id => document.getElementById(id);
 const video = $('video'), roi = $('roi'), statusEl = $('status'), numIn = $('num');
 let camOk = false, stream = null, track = null, worker = null, busy = false, autoTimer = null, torchOn = false;
 let history = [];
-try { history = JSON.parse(localStorage.getItem('qrHist') || '[]'); } catch (e) {}
+try {
+  // Eski önekle (91)61100 kaydedilmiş geçmişi temizle
+  if (localStorage.getItem('qrPrefix') !== PREFIX) { localStorage.removeItem('qrHist'); localStorage.setItem('qrPrefix', PREFIX); }
+  history = JSON.parse(localStorage.getItem('qrHist') || '[]');
+} catch (e) {}
 
 function setStatus(t) { statusEl.textContent = t; }
 
