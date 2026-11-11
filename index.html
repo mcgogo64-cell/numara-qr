@@ -16,10 +16,10 @@
   .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; margin-bottom:12px; }
   .cam { position:relative; width:100%; aspect-ratio:3/4; max-height:60vh; background:#000; border-radius:10px; overflow:hidden; }
   video { width:100%; height:100%; object-fit:cover; display:block; }
-  .roi { position:absolute; left:10%; right:10%; top:40%; height:20%; border:3px solid var(--acc);
+  .roi { position:absolute; left:10%; right:10%; top:43%; height:14%; border:3px solid var(--acc);
          border-radius:8px; box-shadow:0 0 0 9999px rgba(0,0,0,.45); pointer-events:none; }
   .roi.busy { border-color:var(--warn); }
-  .hint { position:absolute; left:0; right:0; top:calc(40% - 30px); text-align:center; font-size:13px; color:#fff; text-shadow:0 1px 3px #000; }
+  .hint { position:absolute; left:0; right:0; top:calc(43% - 30px); text-align:center; font-size:13px; color:#fff; text-shadow:0 1px 3px #000; }
   .camMsg { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center;
             padding:20px; font-size:14px; color:var(--mut); }
   .row { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
@@ -44,6 +44,13 @@
   .hist li:last-child { border-bottom:0; }
   .hist small { color:var(--mut); }
   #fileIn { display:none; }
+  #dbg { display:block; max-width:100%; max-height:70px; border-radius:6px; background:#fff; }
+  .lenRow { display:flex; align-items:center; gap:10px; margin-top:12px; }
+  .lenRow label { margin:0; flex:1; }
+  .lenRow input { flex:0 0 90px; border:1px solid var(--line); border-radius:10px; background:#11141a; padding:10px; text-align:center; }
+  #chips { margin-top:8px; }
+  .chip { flex:none; display:inline-block; min-width:0; margin:6px 6px 0 0; padding:10px 14px; font-family:ui-monospace,Menlo,monospace; font-size:15px; }
+  .tip { font-size:12px; color:var(--mut); margin-top:6px; }
 </style>
 </head>
 <body>
@@ -62,10 +69,18 @@
     <button id="btnTorch" style="display:none">🔦 Fener</button>
   </div>
   <div class="row">
-    <button id="btnPhoto">🖼️ Fotoğraftan oku</button>
+    <button id="btnBarcode">▥ Barkoddan oku</button>
+    <button id="btnPhoto">🖼️ Fotoğraftan</button>
   </div>
   <input type="file" id="fileIn" accept="image/*" capture="environment">
   <div class="status" id="status"></div>
+  <div id="chips" style="display:none"></div>
+  <div id="dbgWrap" style="display:none"><label style="margin-top:8px">OCR'ın gördüğü görüntü:</label><img id="dbg" alt=""></div>
+  <div class="lenRow">
+    <label for="len">Numara kaç haneli?</label>
+    <input id="len" type="number" inputmode="numeric" min="0" max="30" placeholder="örn. 9">
+  </div>
+  <div class="tip">Hane sayısını girerseniz eksik/fazla okumaları kabul etmez, doğru olanı bekler.</div>
 </div>
 
 <div class="card">
@@ -146,37 +161,73 @@ $('btnTorch').onclick = async () => {
 };
 
 // ---------- OCR ----------
+const lenIn = $('len');
+try { lenIn.value = localStorage.getItem('qrLen') || ''; } catch (e) {}
+lenIn.addEventListener('change', () => { try { localStorage.setItem('qrLen', lenIn.value); } catch (e) {} });
+const expectedLen = () => { const n = parseInt(lenIn.value, 10); return n > 0 ? n : 0; };
+const lenOk = s => { const L = expectedLen(); return L ? s.length === L : s.length >= 3; };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 async function getWorker() {
   if (worker) return worker;
   setStatus('OCR motoru yükleniyor (ilk seferde birkaç saniye)…');
-  worker = await Tesseract.createWorker('eng');
-  await worker.setParameters({
-    tessedit_char_whitelist: '0123456789',
-    tessedit_pageseg_mode: '7' // tek satır metin
-  });
+  worker = await Tesseract.createWorker('eng', 1, {}, { load_system_dawg: '0', load_freq_dawg: '0' });
+  await worker.setParameters({ tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '7' });
   return worker;
 }
 
-// Görüntüyü gri tonlamaya çevirip kontrastı artır (OCR doğruluğu için)
-function preprocess(srcCanvas) {
-  const scale = Math.max(1, 1200 / srcCanvas.width);
-  const c = document.createElement('canvas');
-  c.width = Math.round(srcCanvas.width * scale);
-  c.height = Math.round(srcCanvas.height * scale);
+// Görüntüyü OCR için hazırla. mode: adaptive (parlama/gölgeye dayanıklı), otsu, stretch
+function variant(src, mode, targetH) {
+  const k = targetH / src.height;
+  const w = Math.max(1, Math.round(src.width * k)), h = targetH;
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
   const ctx = c.getContext('2d', { willReadFrequently: true });
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(srcCanvas, 0, 0, c.width, c.height);
-  const img = ctx.getImageData(0, 0, c.width, c.height), d = img.data;
-  let sum = 0;
-  for (let i = 0; i < d.length; i += 4) { const g = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2]; d[i] = g; sum += g; }
-  const avg = sum / (d.length / 4);
-  for (let i = 0; i < d.length; i += 4) {
-    let g = (d[i] - avg) * 1.8 + 128;
-    g = g < 0 ? 0 : g > 255 ? 255 : g;
-    d[i] = d[i+1] = d[i+2] = g;
+  if (mode !== 'stretch') ctx.filter = 'blur(1px)';   // nokta vuruşlu rakamları birleştirir
+  ctx.drawImage(src, 0, 0, w, h);
+  ctx.filter = 'none';
+  const img = ctx.getImageData(0, 0, w, h), d = img.data, N = w * h;
+  const g = new Float32Array(N), out = new Uint8ClampedArray(N);
+  for (let i = 0, j = 0; j < N; i += 4, j++) g[j] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+
+  if (mode === 'stretch') {
+    const sorted = Float32Array.from(g).sort();
+    const lo = sorted[Math.floor(N * 0.02)], hi = sorted[Math.floor(N * 0.98)], rng = Math.max(1, hi - lo);
+    for (let j = 0; j < N; j++) out[j] = (g[j] - lo) * 255 / rng;
+  } else if (mode === 'otsu') {
+    const hist = new Array(256).fill(0);
+    for (let j = 0; j < N; j++) hist[g[j] | 0]++;
+    let sum = 0; for (let t = 0; t < 256; t++) sum += t * hist[t];
+    let sB = 0, wB = 0, best = 0, th = 128;
+    for (let t = 0; t < 256; t++) {
+      wB += hist[t]; if (!wB) continue;
+      const wF = N - wB; if (!wF) break;
+      sB += t * hist[t];
+      const mB = sB / wB, mF = (sum - sB) / wF, v = wB * wF * (mB - mF) * (mB - mF);
+      if (v > best) { best = v; th = t; }
+    }
+    for (let j = 0; j < N; j++) out[j] = g[j] > th ? 255 : 0;
+  } else { // adaptive: yerel ortalamaya göre eşikleme (integral görüntü)
+    const W = w + 1, I = new Float64Array(W * (h + 1));
+    for (let y = 0; y < h; y++) { let row = 0;
+      for (let x = 0; x < w; x++) { row += g[y * w + x]; I[(y + 1) * W + x + 1] = I[y * W + x + 1] + row; } }
+    const r = Math.max(8, Math.round(Math.min(h / 3, 40)));
+    for (let y = 0; y < h; y++) {
+      const y0 = Math.max(0, y - r), y1 = Math.min(h, y + r + 1);
+      for (let x = 0; x < w; x++) {
+        const x0 = Math.max(0, x - r), x1 = Math.min(w, x + r + 1);
+        const area = (y1 - y0) * (x1 - x0);
+        const m = (I[y1 * W + x1] - I[y0 * W + x1] - I[y1 * W + x0] + I[y0 * W + x0]) / area;
+        out[y * w + x] = g[y * w + x] < m - 12 ? 0 : 255;
+      }
+    }
   }
+  for (let j = 0, i = 0; j < N; j++, i += 4) { d[i] = d[i + 1] = d[i + 2] = out[j]; d[i + 3] = 255; }
   ctx.putImageData(img, 0, 0);
-  return c;
+  // Kenarlara beyaz boşluk ekle (Tesseract kenara yapışık yazıyı kötü okur)
+  const p = document.createElement('canvas'); p.width = w + 40; p.height = h + 40;
+  const pc = p.getContext('2d'); pc.fillStyle = '#fff'; pc.fillRect(0, 0, p.width, p.height); pc.drawImage(c, 20, 20);
+  return p;
 }
 
 // Videodan sadece yeşil çerçevenin içini kes
@@ -194,73 +245,203 @@ function grabRoi() {
   return c;
 }
 
-function bestDigits(text) {
-  const runs = (text.replace(/[ \t]/g, '').match(/\d+/g) || []);
-  runs.sort((a, b) => b.length - a.length);
-  return runs[0] || '';
+// Oylama: aynı sonucu birden fazla deneme verirse ona güvenilir
+function addVote(votes, s, conf, img) {
+  if (s.length < 3) return;
+  const v = votes.get(s) || { s, n: 0, conf: 0, img };
+  v.n++; v.conf = Math.max(v.conf, conf); v.img = img; votes.set(s, v);
 }
-
-async function recognize(canvas, silent) {
-  if (busy) return '';
-  busy = true; roi.classList.add('busy');
-  try {
-    const w = await getWorker();
-    if (!silent) setStatus('Okunuyor…');
-    const { data } = await w.recognize(preprocess(canvas));
-    const digits = bestDigits(data.text);
-    if (digits.length >= 3) {
-      numIn.value = digits;
-      update(true);
-      setStatus('✅ Okundu: ' + digits + '  (güven: %' + Math.round(data.confidence) + ')');
-      if (navigator.vibrate) navigator.vibrate(80);
-    } else if (!silent) {
-      setStatus('Numara bulunamadı. Daha yakından, net ve düz tutup tekrar deneyin.');
-    }
-    return digits;
-  } catch (e) {
-    setStatus('OCR hatası: ' + e.message + ' — internet bağlantısını kontrol edin.');
-    return '';
-  } finally {
-    busy = false; roi.classList.remove('busy');
+function pick(votes) {
+  const L = expectedLen(); let best = null, bs = -1e9;
+  for (const v of votes.values()) {
+    let sc = v.n * 60 + v.conf;
+    if (L) sc += v.s.length === L ? 200 : -40 * Math.abs(v.s.length - L);
+    else sc += v.s.length * 8;
+    if (sc > bs) { bs = sc; best = v; }
   }
+  return best;
+}
+function showDbg(img) { if (img) { $('dbg').src = img.toDataURL(); $('dbgWrap').style.display = ''; } }
+
+function accept(v) {
+  numIn.value = v.s;
+  update(true);
+  showDbg(v.img);
+  const L = expectedLen();
+  if (L && v.s.length !== L) setStatus('⚠️ ' + v.s.length + ' hane okundu, ' + L + ' bekleniyordu: ' + v.s + ' — kontrol edin veya tekrar okuyun.');
+  else setStatus('✅ Okundu: ' + v.s);
+  if (navigator.vibrate) navigator.vibrate(80);
 }
 
-$('btnRead').onclick = () => { if (!camOk) { $('fileIn').click(); return; } const c = grabRoi(); if (c) recognize(c); else setStatus('Kamera hazır değil.'); };
+// Farklı ölçek / sayfa modu / harf filtresi denemeleri — sonuçlar oylanır
+const COMBOS = [
+  { mode: 'adaptive', H: 180, psm: '7',  wl: true  },
+  { mode: 'adaptive', H: 130, psm: '7',  wl: false },
+  { mode: 'adaptive', H: 120, psm: '13', wl: true  },
+  { mode: 'adaptive', H: 150, psm: '7',  wl: false },
+  { mode: 'adaptive', H: 180, psm: '13', wl: true  },
+  { mode: 'stretch',  H: 150, psm: '7',  wl: false },
+];
+// Çizgili sıfır (Ø) gibi rakama benzeyen karakterleri rakama çevir
+function toDigitsCandidates(text, wl) {
+  let t = (text.split('\n').find(l => l.trim()) || '');
+  if (!wl) t = t.replace(/[QOoDØø@°θeC]/g, '0').replace(/[Il|!]/g, '1').replace(/[B]/g, '8').replace(/[S]/g, '5').replace(/[Z]/g, '2');
+  const parts = t.split(/\s+/).map(x => x.replace(/\D/g, '')).filter(Boolean);
+  // Kenardaki tek haneli parçalar genelde barkod çizgisi/gürültüdür: birleştirirken at
+  const concat = parts.filter(x => x.length > 1).join('') || parts.join('');
+  const tokens = parts.slice().sort((a, b) => b.length - a.length);
+  const out = [concat];
+  if (tokens[0] && tokens[0] !== concat) out.push(tokens[0]);
+  return out;
+}
+async function ocrCombo(src, cb) {
+  const w = await getWorker();
+  await w.setParameters({ tessedit_pageseg_mode: cb.psm, tessedit_char_whitelist: cb.wl ? '0123456789' : '' });
+  const img = variant(src, cb.mode, cb.H);
+  const { data } = await w.recognize(img);
+  return { cands: toDigitsCandidates(data.text, cb.wl), conf: data.confidence, img };
+}
+async function ocrOnce(src, mode, psm, targetH) {
+  const w = await getWorker();
+  await w.setParameters({ tessedit_pageseg_mode: psm, tessedit_char_whitelist: '0123456789' });
+  const img = variant(src, mode, targetH);
+  const { data } = await w.recognize(img);
+  return { data, img };
+}
+function ranked(votes) {
+  const L = expectedLen();
+  return [...votes.values()].map(v => {
+    let sc = v.n * 60 + v.conf;
+    if (L) sc += v.s.length === L ? 200 : -40 * Math.abs(v.s.length - L); else sc += v.s.length * 8;
+    return { v, sc };
+  }).sort((a, b) => b.sc - a.sc).map(x => x.v);
+}
+// Alternatif okumaları dokunulabilir buton olarak göster
+function showChips(list, title) {
+  const box = $('chips');
+  box.innerHTML = '';
+  if (!list.length) { box.style.display = 'none'; return; }
+  const lb = document.createElement('div'); lb.className = 'tip'; lb.textContent = title; box.appendChild(lb);
+  list.forEach(item => {
+    const b = document.createElement('button'); b.className = 'chip';
+    b.textContent = item.label || item.s;
+    b.onclick = () => { numIn.value = item.s; update(true); setStatus('✅ Seçildi: ' + item.s); };
+    box.appendChild(b);
+  });
+  box.style.display = '';
+}
 
+// Manuel okuma: 2 kare × 3 işleme yöntemi, sonuçları oylar
+async function manualRead() {
+  if (busy) return;
+  busy = true; roi.classList.add('busy'); setStatus('Okunuyor… telefonu sabit tutun');
+  try {
+    const votes = new Map();
+    outer: for (let f = 0; f < 2; f++) {
+      const src = grabRoi(); if (!src) { setStatus('Kamera hazır değil.'); return; }
+      for (const cb of COMBOS) {
+        const r = await ocrCombo(src, cb);
+        r.cands.forEach(c => addVote(votes, c, r.conf, r.img));
+        const b = pick(votes);
+        if (b && b.n >= 3 && lenOk(b.s)) break outer;
+      }
+    }
+    const list = ranked(votes);
+    showChips(list.slice(1, 4).filter(v => lenOk(v.s) || !expectedLen()), 'Yanlışsa diğer okumalardan seçin:');
+    const b = list[0];
+    if (b) accept(b); else setStatus('Numara bulunamadı. Rakamlar çerçeveyi yatayda doldursun, fener açıp tekrar deneyin.');
+  } catch (e) {
+    setStatus('OCR hatası: ' + e.message);
+  } finally { busy = false; roi.classList.remove('busy'); }
+}
+$('btnRead').onclick = () => { if (!camOk) { $('fileIn').click(); return; } manualRead(); };
+
+// Otomatik: aynı numarayı 2 kez görene kadar tarar
+let autoVotes = new Map(), autoStep = 0;
 $('btnAuto').onclick = () => {
   if (autoTimer) { stopAuto(); return; }
+  autoVotes = new Map(); autoStep = 0;
   $('btnAuto').textContent = 'Otomatik: Açık'; $('btnAuto').classList.add('on');
   setStatus('Otomatik tarama… numarayı çerçeveye tutun.');
   autoTimer = setInterval(async () => {
     if (busy) return;
-    const c = grabRoi(); if (!c) return;
-    const d = await recognize(c, true);
-    if (d.length >= 3) stopAuto();
-  }, 900);
+    const src = grabRoi(); if (!src) return;
+    busy = true; roi.classList.add('busy');
+    try {
+      const r = await ocrCombo(src, COMBOS[autoStep++ % COMBOS.length]);
+      r.cands.forEach(c => addVote(autoVotes, c, r.conf, r.img));
+      const b = pick(autoVotes);
+      if (b && b.n >= 3 && lenOk(b.s)) {
+        stopAuto(); accept(b);
+        showChips(ranked(autoVotes).slice(1, 4).filter(v => lenOk(v.s)), 'Yanlışsa diğer okumalardan seçin:');
+      }
+      else if (b) setStatus('Taranıyor… şu an görülen: ' + b.s);
+    } catch (e) {} finally { busy = false; roi.classList.remove('busy'); }
+  }, 300);
 };
 function stopAuto() {
   clearInterval(autoTimer); autoTimer = null;
   $('btnAuto').textContent = 'Otomatik: Kapalı'; $('btnAuto').classList.remove('on');
 }
 
+// Barkod / Data Matrix okuma (Chrome Android'in yerleşik okuyucusu)
+let barcodeBusy = false;
+$('btnBarcode').onclick = async () => {
+  if (!('BarcodeDetector' in window)) { setStatus('Bu tarayıcı barkod okumayı desteklemiyor (Android Chrome gerekir).'); return; }
+  if (!camOk) { setStatus('Barkod için canlı kamera gerekli.'); return; }
+  if (barcodeBusy) return;
+  barcodeBusy = true; stopAuto();
+  setStatus('Barkod aranıyor… etiketteki barkodu kameraya gösterin.');
+  try {
+    const det = new BarcodeDetector();
+    const found = new Map(); const t0 = Date.now(); let tFirst = 0;
+    while (Date.now() - t0 < 8000) {
+      const codes = await det.detect(video).catch(() => []);
+      codes.forEach(c => { if (c.rawValue && !found.has(c.rawValue)) found.set(c.rawValue, c.format); });
+      if (found.size && !tFirst) tFirst = Date.now();
+      if (tFirst && Date.now() - tFirst > 1200) break;
+      await sleep(150);
+    }
+    if (!found.size) { setStatus('Barkod bulunamadı. Barkoda yaklaşın, fener açıp tekrar deneyin.'); return; }
+    const L = expectedLen(), items = [];
+    for (const [raw, fmt] of found) {
+      const runs = raw.match(/\d+/g) || [];
+      let s = L ? (runs.find(r => r.length === L) || raw.replace(/\D/g, '')) : raw.replace(/\D/g, '');
+      if (s) items.push({ s, label: s + '  (' + fmt + (raw !== s ? ': ' + raw : '') + ')' });
+    }
+    if (!items.length) { setStatus('Barkod okundu ama içinde rakam yok: ' + [...found.keys()].join(', ')); return; }
+    showChips(items, 'Barkodlarda bulunanlar — doğru numaraya dokunun:');
+    if (items.length === 1) { numIn.value = items[0].s; update(true); setStatus('✅ Barkoddan okundu: ' + items[0].s); if (navigator.vibrate) navigator.vibrate(80); }
+    else setStatus(items.length + ' barkod bulundu, aşağıdan doğru olanı seçin.');
+  } finally { barcodeBusy = false; }
+};
+
 // Fotoğraftan okuma (canlı kamera yoksa yedek yol)
 $('btnPhoto').onclick = () => $('fileIn').click();
 $('fileIn').onchange = e => {
   const f = e.target.files[0]; if (!f) return;
-  const img = new Image();
-  img.onload = () => {
-    const c = document.createElement('canvas');
-    const k = Math.min(1, 2000 / Math.max(img.width, img.height));
-    c.width = img.width * k; c.height = img.height * k;
-    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-    URL.revokeObjectURL(img.src);
-    // Tam fotoğrafta çok satır olabilir: otomatik sayfa düzeni kullan
-    getWorker().then(w => w.setParameters({ tessedit_pageseg_mode: '11' }))
-      .then(() => recognize(c))
-      .finally(() => worker && worker.setParameters({ tessedit_pageseg_mode: '7' }));
-  };
-  img.src = URL.createObjectURL(f);
   e.target.value = '';
+  const im = new Image();
+  im.onload = async () => {
+    URL.revokeObjectURL(im.src);
+    if (busy) return;
+    busy = true; setStatus('Fotoğraf okunuyor…');
+    try {
+      const c = document.createElement('canvas');
+      const k = Math.min(1, 1600 / Math.max(im.width, im.height));
+      c.width = im.width * k; c.height = im.height * k;
+      c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+      const votes = new Map();
+      for (const m of ['adaptive', 'stretch']) {
+        const { data, img } = await ocrOnce(c, m, '11', c.height);
+        data.text.split('\n').forEach(line => addVote(votes, line.replace(/\D/g, ''), data.confidence, img));
+      }
+      const b = pick(votes);
+      if (b) accept(b); else setStatus('Fotoğrafta numara bulunamadı. Numaraya daha yakından çekin.');
+    } catch (err) { setStatus('OCR hatası: ' + err.message); }
+    finally { busy = false; }
+  };
+  im.src = URL.createObjectURL(f);
 };
 
 // ---------- QR ----------
