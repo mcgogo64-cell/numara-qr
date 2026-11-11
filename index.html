@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Numara → QR</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<style>
+  :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --txt:#e8eaf0; --mut:#8b92a3; --acc:#22c55e; --warn:#f59e0b; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt);
+         min-height:100vh; padding:12px; padding-bottom:40px; }
+  h1 { font-size:18px; font-weight:600; margin:4px 0 12px; }
+  h1 span { color:var(--mut); font-weight:400; font-size:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; margin-bottom:12px; }
+  .cam { position:relative; width:100%; aspect-ratio:3/4; max-height:60vh; background:#000; border-radius:10px; overflow:hidden; }
+  video { width:100%; height:100%; object-fit:cover; display:block; }
+  .roi { position:absolute; left:10%; right:10%; top:40%; height:20%; border:3px solid var(--acc);
+         border-radius:8px; box-shadow:0 0 0 9999px rgba(0,0,0,.45); pointer-events:none; }
+  .roi.busy { border-color:var(--warn); }
+  .hint { position:absolute; left:0; right:0; top:calc(40% - 30px); text-align:center; font-size:13px; color:#fff; text-shadow:0 1px 3px #000; }
+  .camMsg { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center;
+            padding:20px; font-size:14px; color:var(--mut); }
+  .row { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  button { flex:1; min-width:90px; padding:13px 10px; font-size:15px; font-weight:600; border-radius:10px; border:1px solid var(--line);
+           background:#252a34; color:var(--txt); cursor:pointer; }
+  button.primary { background:var(--acc); border-color:var(--acc); color:#04140a; }
+  button.on { background:#14532d; border-color:var(--acc); }
+  button:disabled { opacity:.5; }
+  label { font-size:13px; color:var(--mut); display:block; margin-bottom:6px; }
+  .inputWrap { display:flex; align-items:center; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#11141a; }
+  .prefix { padding:12px 4px 12px 12px; font-family:ui-monospace,Menlo,monospace; font-size:18px; color:var(--mut); white-space:nowrap; }
+  input { flex:1; min-width:0; padding:12px 12px 12px 2px; font-size:18px; font-family:ui-monospace,Menlo,monospace;
+          background:transparent; border:0; color:var(--txt); outline:none; letter-spacing:1px; }
+  .status { font-size:13px; color:var(--mut); margin-top:8px; min-height:18px; }
+  .qrBox { display:flex; flex-direction:column; align-items:center; gap:10px; }
+  #qr { background:#fff; padding:14px; border-radius:12px; width:min(78vw,300px); aspect-ratio:1; display:flex; align-items:center; justify-content:center; }
+  #qr img, #qr svg { width:100%; height:100%; image-rendering:pixelated; }
+  #qr .empty { color:#999; font-size:14px; text-align:center; }
+  .code { font-family:ui-monospace,Menlo,monospace; font-size:17px; word-break:break-all; text-align:center; }
+  .hist { list-style:none; font-family:ui-monospace,Menlo,monospace; font-size:14px; }
+  .hist li { padding:8px 4px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; cursor:pointer; }
+  .hist li:last-child { border-bottom:0; }
+  .hist small { color:var(--mut); }
+  #fileIn { display:none; }
+</style>
+</head>
+<body>
+<h1>Numara → QR <span>(91)61100 + numara</span></h1>
+
+<div class="card">
+  <div class="cam">
+    <video id="video" playsinline muted autoplay></video>
+    <div class="hint">Numarayı yeşil çerçevenin içine getirin</div>
+    <div class="roi" id="roi"></div>
+    <div class="camMsg" id="camMsg">Kamera başlatılıyor…</div>
+  </div>
+  <div class="row">
+    <button class="primary" id="btnRead">📷 Oku</button>
+    <button id="btnAuto">Otomatik: Kapalı</button>
+    <button id="btnTorch" style="display:none">🔦 Fener</button>
+  </div>
+  <div class="row">
+    <button id="btnPhoto">🖼️ Fotoğraftan oku</button>
+  </div>
+  <input type="file" id="fileIn" accept="image/*" capture="environment">
+  <div class="status" id="status"></div>
+</div>
+
+<div class="card">
+  <label for="num">Okunan numara (gerekirse düzeltin)</label>
+  <div class="inputWrap">
+    <span class="prefix">(91)61100</span>
+    <input id="num" inputmode="numeric" pattern="[0-9]*" placeholder="numara" autocomplete="off">
+  </div>
+</div>
+
+<div class="card qrBox">
+  <div id="qr"><div class="empty">Numara okununca<br>QR kod burada çıkar</div></div>
+  <div class="code" id="codeText"></div>
+  <div class="row" style="width:100%">
+    <button id="btnSave" disabled>⬇️ PNG kaydet</button>
+    <button id="btnCopy" disabled>📋 Kopyala</button>
+  </div>
+</div>
+
+<div class="card">
+  <label>Son okunanlar</label>
+  <ul class="hist" id="hist"></ul>
+</div>
+
+<script>
+const PREFIX = '(91)61100';
+const $ = id => document.getElementById(id);
+const video = $('video'), roi = $('roi'), statusEl = $('status'), numIn = $('num');
+let camOk = false, stream = null, track = null, worker = null, busy = false, autoTimer = null, torchOn = false;
+let history = [];
+try { history = JSON.parse(localStorage.getItem('qrHist') || '[]'); } catch (e) {}
+
+function setStatus(t) { statusEl.textContent = t; }
+
+// ---------- Kamera ----------
+function camFail(msg) {
+  camOk = false;
+  roi.style.display = 'none';
+  document.querySelector('.hint').style.display = 'none';
+  $('camMsg').innerHTML = msg;
+  $('btnRead').textContent = '📷 Fotoğraf çek ve oku';
+  $('btnAuto').style.display = 'none';
+}
+async function startCamera() {
+  if (!window.isSecureContext) {
+    camFail('Canlı kamera bu adreste kapalı (HTTPS gerekli).<br><br>Aşağıdaki <b>"📷 Fotoğraf çek ve oku"</b> butonu telefonun kamerasını açar ve aynı şekilde çalışır.');
+    return;
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    camFail('Bu tarayıcı canlı kamerayı desteklemiyor.<br><br><b>"📷 Fotoğraf çek ve oku"</b> butonunu kullanın.');
+    return;
+  }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+    });
+    video.srcObject = stream;
+    await video.play();
+    $('camMsg').style.display = 'none';
+    camOk = true;
+    track = stream.getVideoTracks()[0];
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
+    if (caps.torch) $('btnTorch').style.display = '';
+    if (caps.focusMode && caps.focusMode.includes('continuous')) {
+      track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
+    }
+  } catch (e) {
+    camFail('Kameraya erişilemedi (' + e.name + ').<br><br>Tarayıcı ayarlarından kamera izni verin veya <b>"📷 Fotoğraf çek ve oku"</b> butonunu kullanın.');
+  }
+}
+
+$('btnTorch').onclick = async () => {
+  if (!track) return;
+  torchOn = !torchOn;
+  try { await track.applyConstraints({ advanced: [{ torch: torchOn }] }); $('btnTorch').classList.toggle('on', torchOn); }
+  catch (e) { torchOn = false; }
+};
+
+// ---------- OCR ----------
+async function getWorker() {
+  if (worker) return worker;
+  setStatus('OCR motoru yükleniyor (ilk seferde birkaç saniye)…');
+  worker = await Tesseract.createWorker('eng');
+  await worker.setParameters({
+    tessedit_char_whitelist: '0123456789',
+    tessedit_pageseg_mode: '7' // tek satır metin
+  });
+  return worker;
+}
+
+// Görüntüyü gri tonlamaya çevirip kontrastı artır (OCR doğruluğu için)
+function preprocess(srcCanvas) {
+  const scale = Math.max(1, 1200 / srcCanvas.width);
+  const c = document.createElement('canvas');
+  c.width = Math.round(srcCanvas.width * scale);
+  c.height = Math.round(srcCanvas.height * scale);
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(srcCanvas, 0, 0, c.width, c.height);
+  const img = ctx.getImageData(0, 0, c.width, c.height), d = img.data;
+  let sum = 0;
+  for (let i = 0; i < d.length; i += 4) { const g = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2]; d[i] = g; sum += g; }
+  const avg = sum / (d.length / 4);
+  for (let i = 0; i < d.length; i += 4) {
+    let g = (d[i] - avg) * 1.8 + 128;
+    g = g < 0 ? 0 : g > 255 ? 255 : g;
+    d[i] = d[i+1] = d[i+2] = g;
+  }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+
+// Videodan sadece yeşil çerçevenin içini kes
+function grabRoi() {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw) return null;
+  const vr = video.getBoundingClientRect(), rr = roi.getBoundingClientRect();
+  const s = Math.max(vr.width / vw, vr.height / vh);         // object-fit: cover ölçeği
+  const ox = (vw * s - vr.width) / 2, oy = (vh * s - vr.height) / 2;
+  const sx = (rr.left - vr.left + ox) / s, sy = (rr.top - vr.top + oy) / s;
+  const sw = rr.width / s, sh = rr.height / s;
+  const c = document.createElement('canvas');
+  c.width = Math.round(sw); c.height = Math.round(sh);
+  c.getContext('2d').drawImage(video, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  return c;
+}
+
+function bestDigits(text) {
+  const runs = (text.replace(/[ \t]/g, '').match(/\d+/g) || []);
+  runs.sort((a, b) => b.length - a.length);
+  return runs[0] || '';
+}
+
+async function recognize(canvas, silent) {
+  if (busy) return '';
+  busy = true; roi.classList.add('busy');
+  try {
+    const w = await getWorker();
+    if (!silent) setStatus('Okunuyor…');
+    const { data } = await w.recognize(preprocess(canvas));
+    const digits = bestDigits(data.text);
+    if (digits.length >= 3) {
+      numIn.value = digits;
+      update(true);
+      setStatus('✅ Okundu: ' + digits + '  (güven: %' + Math.round(data.confidence) + ')');
+      if (navigator.vibrate) navigator.vibrate(80);
+    } else if (!silent) {
+      setStatus('Numara bulunamadı. Daha yakından, net ve düz tutup tekrar deneyin.');
+    }
+    return digits;
+  } catch (e) {
+    setStatus('OCR hatası: ' + e.message + ' — internet bağlantısını kontrol edin.');
+    return '';
+  } finally {
+    busy = false; roi.classList.remove('busy');
+  }
+}
+
+$('btnRead').onclick = () => { if (!camOk) { $('fileIn').click(); return; } const c = grabRoi(); if (c) recognize(c); else setStatus('Kamera hazır değil.'); };
+
+$('btnAuto').onclick = () => {
+  if (autoTimer) { stopAuto(); return; }
+  $('btnAuto').textContent = 'Otomatik: Açık'; $('btnAuto').classList.add('on');
+  setStatus('Otomatik tarama… numarayı çerçeveye tutun.');
+  autoTimer = setInterval(async () => {
+    if (busy) return;
+    const c = grabRoi(); if (!c) return;
+    const d = await recognize(c, true);
+    if (d.length >= 3) stopAuto();
+  }, 900);
+};
+function stopAuto() {
+  clearInterval(autoTimer); autoTimer = null;
+  $('btnAuto').textContent = 'Otomatik: Kapalı'; $('btnAuto').classList.remove('on');
+}
+
+// Fotoğraftan okuma (canlı kamera yoksa yedek yol)
+$('btnPhoto').onclick = () => $('fileIn').click();
+$('fileIn').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement('canvas');
+    const k = Math.min(1, 2000 / Math.max(img.width, img.height));
+    c.width = img.width * k; c.height = img.height * k;
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(img.src);
+    // Tam fotoğrafta çok satır olabilir: otomatik sayfa düzeni kullan
+    getWorker().then(w => w.setParameters({ tessedit_pageseg_mode: '11' }))
+      .then(() => recognize(c))
+      .finally(() => worker && worker.setParameters({ tessedit_pageseg_mode: '7' }));
+  };
+  img.src = URL.createObjectURL(f);
+  e.target.value = '';
+};
+
+// ---------- QR ----------
+let currentCode = '';
+function update(addHist) {
+  const n = numIn.value.replace(/\D/g, '');
+  if (numIn.value !== n) numIn.value = n;
+  const box = $('qr');
+  if (!n) {
+    box.innerHTML = '<div class="empty">Numara okununca<br>QR kod burada çıkar</div>';
+    $('codeText').textContent = ''; currentCode = '';
+    $('btnSave').disabled = $('btnCopy').disabled = true;
+    return;
+  }
+  currentCode = PREFIX + n;
+  const qr = qrcode(0, 'M');
+  qr.addData(currentCode);
+  qr.make();
+  box.innerHTML = qr.createSvgTag({ cellSize: 8, margin: 0, scalable: true });
+  $('codeText').textContent = currentCode;
+  $('btnSave').disabled = $('btnCopy').disabled = false;
+  if (addHist) addHistory(currentCode);
+}
+numIn.addEventListener('input', () => update(false));
+numIn.addEventListener('change', () => update(true));
+
+$('btnSave').onclick = () => {
+  if (!currentCode) return;
+  const qr = qrcode(0, 'M'); qr.addData(currentCode); qr.make();
+  const cells = qr.getModuleCount(), cs = 12, m = 4 * cs, size = cells * cs + 2 * m;
+  const c = document.createElement('canvas'); c.width = size; c.height = size + 60;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+  ctx.fillStyle = '#000';
+  for (let r = 0; r < cells; r++) for (let q = 0; q < cells; q++)
+    if (qr.isDark(r, q)) ctx.fillRect(m + q * cs, m + r * cs, cs, cs);
+  ctx.font = 'bold 26px monospace'; ctx.textAlign = 'center';
+  ctx.fillText(currentCode, size / 2, size + 30);
+  const a = document.createElement('a');
+  a.href = c.toDataURL('image/png');
+  a.download = 'QR_' + currentCode.replace(/[()]/g, '') + '.png';
+  a.click();
+};
+
+$('btnCopy').onclick = async () => {
+  try { await navigator.clipboard.writeText(currentCode); setStatus('Kopyalandı: ' + currentCode); }
+  catch (e) { setStatus('Kopyalanamadı.'); }
+};
+
+// ---------- Geçmiş ----------
+function addHistory(code) {
+  history = [{ code, t: Date.now() }, ...history.filter(h => h.code !== code)].slice(0, 20);
+  try { localStorage.setItem('qrHist', JSON.stringify(history)); } catch (e) {}
+  renderHist();
+}
+function renderHist() {
+  const ul = $('hist');
+  ul.innerHTML = history.length ? '' : '<li><small>Henüz yok</small></li>';
+  history.forEach(h => {
+    const li = document.createElement('li');
+    const d = new Date(h.t);
+    li.innerHTML = '<span>' + h.code + '</span><small>' + d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) + '</small>';
+    li.onclick = () => { numIn.value = h.code.slice(PREFIX.length); update(false); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+    ul.appendChild(li);
+  });
+}
+
+renderHist();
+startCamera();
+getWorker().then(() => setStatus('Hazır. Numarayı çerçeveye tutup "Oku"ya basın.')).catch(() => {});
+</script>
+</body>
+</html>
