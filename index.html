@@ -54,7 +54,7 @@
 </style>
 </head>
 <body>
-<h1>Nummer → QR <span>(91)61100 + Nummer</span></h1>
+<h1>Nummer → QR <span>(91)611 + Nummer</span></h1>
 
 <div class="card">
   <div class="cam">
@@ -86,7 +86,7 @@
 <div class="card">
   <label for="num">Erkannte Nummer (bei Bedarf korrigieren)</label>
   <div class="inputWrap">
-    <span class="prefix">(91)61100</span>
+    <span class="prefix">(91)611</span>
     <input id="num" inputmode="numeric" pattern="[0-9]*" placeholder="Nummer" autocomplete="off">
   </div>
 </div>
@@ -106,7 +106,7 @@
 </div>
 
 <script>
-const PREFIX = '(91)61100';
+const PREFIX = '(91)611';
 const $ = id => document.getElementById(id);
 const video = $('video'), roi = $('roi'), statusEl = $('status'), numIn = $('num');
 let camOk = false, stream = null, track = null, worker = null, busy = false, autoTimer = null, torchOn = false;
