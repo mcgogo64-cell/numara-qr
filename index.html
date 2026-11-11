@@ -18,7 +18,23 @@
   video { width:100%; height:100%; object-fit:cover; display:block; }
   .roi { position:absolute; left:10%; right:10%; top:43%; height:14%; border:3px solid var(--acc);
          border-radius:8px; box-shadow:0 0 0 9999px rgba(0,0,0,.45); pointer-events:none; }
-  .roi.busy { border-color:var(--warn); }
+  .roi { transition:border-color .2s, background-color .2s; }
+  .roi.busy { border-color:#fff; border-style:dashed; animation:pulse .8s ease-in-out infinite; }
+  .roi.ok { border-color:var(--acc); border-style:solid; background:rgba(34,197,94,.18); animation:none; }
+  @keyframes pulse { 50% { border-color:rgba(255,255,255,.35); } }
+  .ov { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+        opacity:0; pointer-events:none; transition:opacity .2s; }
+  .ov.show { opacity:1; }
+  .ov.ok { background:rgba(34,197,94,.30); } .ov.warn { background:rgba(245,158,11,.30); } .ov.err { background:rgba(239,68,68,.28); }
+  .ov .mark { width:110px; height:110px; border-radius:50%; color:#fff; font-size:68px; font-weight:700; line-height:1;
+              display:flex; align-items:center; justify-content:center; box-shadow:0 6px 24px rgba(0,0,0,.45);
+              transform:scale(.5); transition:transform .25s cubic-bezier(.3,1.6,.6,1); }
+  .ov.show .mark { transform:scale(1); }
+  .ov.ok .mark { background:var(--acc); } .ov.warn .mark { background:var(--warn); } .ov.err .mark { background:#ef4444; }
+  .ov .num { margin-top:14px; font:700 24px ui-monospace,Menlo,monospace; color:#fff; background:rgba(0,0,0,.6);
+             padding:6px 14px; border-radius:10px; letter-spacing:1px; }
+  .ov .num:empty { display:none; }
+  .status.ok { color:var(--acc); font-weight:600; } .status.warn { color:var(--warn); font-weight:600; } .status.err { color:#ef4444; }
   .hint { position:absolute; left:0; right:0; top:calc(43% - 30px); text-align:center; font-size:13px; color:#fff; text-shadow:0 1px 3px #000; }
   .camMsg { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center;
             padding:20px; font-size:14px; color:var(--mut); }
@@ -62,6 +78,7 @@
     <div class="hint">Nummer in den grünen Rahmen halten</div>
     <div class="roi" id="roi"></div>
     <div class="camMsg" id="camMsg">Kamera wird gestartet…</div>
+    <div class="ov" id="ov"><div class="mark" id="ovMark">✓</div><div class="num" id="ovNum"></div></div>
   </div>
   <div class="row">
     <button class="primary" id="btnRead">📷 Lesen</button>
@@ -117,7 +134,33 @@ try {
   history = JSON.parse(localStorage.getItem('qrHist') || '[]');
 } catch (e) {}
 
-function setStatus(t) { statusEl.textContent = t; }
+function setStatus(t, kind) { statusEl.textContent = t; statusEl.className = 'status' + (kind ? ' ' + kind : ''); }
+
+// Sonuç işareti: ok = yeşil ✓, warn = turuncu !, err = kırmızı ✕
+let ovTimer = null, audioCtx = null;
+function beep(ok) {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.frequency.value = ok ? 1400 : 300; o.type = ok ? 'sine' : 'square';
+    g.gain.setValueAtTime(0.15, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + (ok ? 0.15 : 0.3));
+    o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.3);
+  } catch (e) {}
+}
+function flash(kind, text) {
+  const ov = $('ov');
+  $('ovMark').textContent = kind === 'ok' ? '✓' : kind === 'warn' ? '!' : '✕';
+  $('ovNum').textContent = text || '';
+  ov.className = 'ov show ' + kind;
+  roi.classList.remove('busy');
+  roi.classList.toggle('ok', kind === 'ok');
+  if (navigator.vibrate) navigator.vibrate(kind === 'ok' ? 120 : [80, 60, 80]);
+  beep(kind === 'ok');
+  clearTimeout(ovTimer);
+  ovTimer = setTimeout(() => { ov.className = 'ov ' + kind; roi.classList.remove('ok'); }, kind === 'ok' ? 2200 : 1600);
+}
+function clearFlash() { clearTimeout(ovTimer); $('ov').className = 'ov'; roi.classList.remove('ok'); }
 
 // ---------- Kamera ----------
 function camFail(msg) {
@@ -272,9 +315,13 @@ function accept(v) {
   update(true);
   showDbg(v.img);
   const L = expectedLen();
-  if (L && v.s.length !== L) setStatus('⚠️ ' + v.s.length + ' Stellen erkannt, ' + L + ' erwartet: ' + v.s + ' – bitte prüfen oder erneut lesen.');
-  else setStatus('✅ Erkannt: ' + v.s);
-  if (navigator.vibrate) navigator.vibrate(80);
+  if (L && v.s.length !== L) {
+    setStatus('⚠️ ' + v.s.length + ' Stellen erkannt, ' + L + ' erwartet: ' + v.s + ' – bitte prüfen oder erneut lesen.', 'warn');
+    flash('warn', v.s);
+  } else {
+    setStatus('✅ Erkannt: ' + v.s, 'ok');
+    flash('ok', v.s);
+  }
 }
 
 // Farklı ölçek / sayfa modu / harf filtresi denemeleri — sonuçlar oylanır
@@ -329,7 +376,7 @@ function showChips(list, title) {
   list.forEach(item => {
     const b = document.createElement('button'); b.className = 'chip';
     b.textContent = item.label || item.s;
-    b.onclick = () => { numIn.value = item.s; update(true); setStatus('✅ Ausgewählt: ' + item.s); };
+    b.onclick = () => { numIn.value = item.s; update(true); setStatus('✅ Ausgewählt: ' + item.s, 'ok'); flash('ok', item.s); };
     box.appendChild(b);
   });
   box.style.display = '';
@@ -338,6 +385,7 @@ function showChips(list, title) {
 // Manuel okuma: 2 kare × 3 işleme yöntemi, sonuçları oylar
 async function manualRead() {
   if (busy) return;
+  clearFlash();
   busy = true; roi.classList.add('busy'); setStatus('Wird gelesen… Handy ruhig halten');
   try {
     const votes = new Map();
@@ -353,7 +401,7 @@ async function manualRead() {
     const list = ranked(votes);
     showChips(list.slice(1, 4).filter(v => lenOk(v.s) || !expectedLen()), 'Falsch? Andere Ergebnisse antippen:');
     const b = list[0];
-    if (b) accept(b); else setStatus('Keine Nummer gefunden. Ziffern sollen den Rahmen in der Breite ausfüllen – ggf. Licht einschalten und erneut versuchen.');
+    if (b) accept(b); else { setStatus('Keine Nummer gefunden. Ziffern sollen den Rahmen in der Breite ausfüllen – ggf. Licht einschalten und erneut versuchen.', 'err'); flash('err', 'Nicht erkannt'); }
   } catch (e) {
     setStatus('Fehler bei der Texterkennung: ' + e.message);
   } finally { busy = false; roi.classList.remove('busy'); }
@@ -366,11 +414,13 @@ $('btnAuto').onclick = () => {
   if (autoTimer) { stopAuto(); return; }
   autoVotes = new Map(); autoStep = 0;
   $('btnAuto').textContent = 'Automatisch: Ein'; $('btnAuto').classList.add('on');
+  roi.classList.add('busy');   // tarama boyunca sabit "taranıyor" görünümü
+  clearFlash();
   setStatus('Automatischer Scan… Nummer in den Rahmen halten.');
   autoTimer = setInterval(async () => {
     if (busy) return;
     const src = grabRoi(); if (!src) return;
-    busy = true; roi.classList.add('busy');
+    busy = true;
     try {
       const r = await ocrCombo(src, COMBOS[autoStep++ % COMBOS.length]);
       r.cands.forEach(c => addVote(autoVotes, c, r.conf, r.img));
@@ -380,11 +430,12 @@ $('btnAuto').onclick = () => {
         showChips(ranked(autoVotes).slice(1, 4).filter(v => lenOk(v.s)), 'Falsch? Andere Ergebnisse antippen:');
       }
       else if (b) setStatus('Scanne… aktuell erkannt: ' + b.s);
-    } catch (e) {} finally { busy = false; roi.classList.remove('busy'); }
+    } catch (e) {} finally { busy = false; }
   }, 300);
 };
 function stopAuto() {
   clearInterval(autoTimer); autoTimer = null;
+  roi.classList.remove('busy');
   $('btnAuto').textContent = 'Automatisch: Aus'; $('btnAuto').classList.remove('on');
 }
 
@@ -415,7 +466,7 @@ $('btnBarcode').onclick = async () => {
     }
     if (!items.length) { setStatus('Barcode gelesen, enthält aber keine Ziffern: ' + [...found.keys()].join(', ')); return; }
     showChips(items, 'Gefunden in Barcodes – richtige Nummer antippen:');
-    if (items.length === 1) { numIn.value = items[0].s; update(true); setStatus('✅ Aus Barcode gelesen: ' + items[0].s); if (navigator.vibrate) navigator.vibrate(80); }
+    if (items.length === 1) { numIn.value = items[0].s; update(true); setStatus('✅ Aus Barcode gelesen: ' + items[0].s, 'ok'); flash('ok', items[0].s); }
     else setStatus(items.length + ' Barcodes gefunden – unten den richtigen auswählen.');
   } finally { barcodeBusy = false; }
 };
